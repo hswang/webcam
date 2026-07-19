@@ -155,10 +155,10 @@
                             "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm"
                         );
                         
-                        // 使用經包裝、無跨域安全衝突的官方任務路徑，並改用 CPU 避開部分硬體瀏覽器對 GPU 加速的黑名單阻擋
+                        // 替換為官方正式開放跨域授權（CORS）的標準模型路徑，並使用 CPU 運算避開 GPU 黑名單阻擋
                         handLandmarker = await HandLandmarker.createFromOptions(vision, {
                             baseOptions: {
-                                modelAssetPath: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm/hand_landmarker.task",
+                                modelAssetPath: "https://storage.googleapis.com/mediapipe-tasks/hand_landmarker/hand_landmarker.task",
                                 delegate: "CPU"
                             },
                             runningMode: runningMode,
@@ -169,7 +169,7 @@
                         statusEl.innerText = "系統就緒：請在鏡頭前張開五指試試！";
                     } catch (modelError) {
                         console.error("AI 模型載入失敗原因:", modelError);
-                        statusEl.innerText = "AI 模組載入失敗。請按 F12 查看 Console 的詳細紅色錯誤訊息。";
+                        statusEl.innerText = "AI 模組載入失敗，請按 F12 檢查 Console 錯誤訊息。";
                     }
                 })
                 .catch((err) => {
