@@ -34,7 +34,7 @@
             height: 480px;
             transform: rotateY(180deg);
             object-fit: cover;
-            z-index: 1; /* 確保影片在最底層 */
+            z-index: 1;
         }
         #canvas-output {
             position: absolute;
@@ -44,8 +44,8 @@
             height: 480px;
             transform: rotateY(180deg);
             pointer-events: none;
-            z-index: 10; /* 強制將繪圖層提到影片上方，防範綠點被遮擋 */
-            background: transparent; /* 確保畫布完全透明 */
+            z-index: 10;
+            background: transparent;
         }
         #countdown {
             position: absolute;
@@ -157,10 +157,10 @@
                             numHands: 1
                         });
                         
-                        video.addEventListener("loadeddata", () => {
-                            statusEl.innerText = "系統就緒：請在鏡頭前張開五指試試！";
-                            predictWebcam();
-                        });
+                        // 模型加載成功後，直接修改文字並呼叫預測
+                        statusEl.innerText = "系統就緒：請在鏡頭前張開五指試試！";
+                        predictWebcam();
+                        
                     } catch (modelError) {
                         console.error("AI 模型載入失敗原因:", modelError);
                         statusEl.innerText = "AI 模組載入失敗，請檢查網路連線。";
@@ -174,43 +174,46 @@
 
         let lastVideoTime = -1;
         async function predictWebcam() {
-            // 如果手掌辨識庫尚未準備好，或影片還沒真正播放，直接等待下一幀
-            if (!handLandmarker || video.readyState < 2) {
+            // 如果手掌辨識庫尚未準備好，直接等待下一幀
+            if (!handLandmarker) {
                 requestAnimationFrame(predictWebcam);
                 return;
             }
 
-            if (canvasElement.width !== video.videoWidth) {
-                canvasElement.width = video.videoWidth;
-                canvasElement.height = video.videoHeight;
-            }
-
-            try {
-                let startTimeMs = performance.now();
-                if (lastVideoTime !== video.currentTime && video.currentTime > 0) {
-                    lastVideoTime = video.currentTime;
-                    const results = handLandmarker.detectForVideo(video, startTimeMs);
-
-                    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-                    
-                    if (results.landmarks && results.landmarks.length > 0) {
-                        const landmarks = results.landmarks[0];
-                        
-                        const isIndexOpen = landmarks[8].y < landmarks[6].y;
-                        const isMiddleOpen = landmarks[12].y < landmarks[10].y;
-                        const isRingOpen = landmarks[16].y < landmarks[14].y;
-                        const isPinkyOpen = landmarks[20].y < landmarks[18].y;
-                        
-                        if (isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen) {
-                            if (!isCountingDown) {
-                                startCountdown();
-                            }
-                        }
-                        drawHandPoints(landmarks);
-                    }
+            // 確保影片播放中且有畫面數據再進行偵測
+            if (video.readyState >= 2) {
+                if (canvasElement.width !== video.videoWidth) {
+                    canvasElement.width = video.videoWidth;
+                    canvasElement.height = video.videoHeight;
                 }
-            } catch (err) {
-                console.error("預測執行期錯誤:", err);
+
+                try {
+                    let startTimeMs = performance.now();
+                    if (lastVideoTime !== video.currentTime && video.currentTime > 0) {
+                        lastVideoTime = video.currentTime;
+                        const results = handLandmarker.detectForVideo(video, startTimeMs);
+
+                        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+                        
+                        if (results.landmarks && results.landmarks.length > 0) {
+                            const landmarks = results.landmarks[0];
+                            
+                            const isIndexOpen = landmarks[8].y < landmarks[6].y;
+                            const isMiddleOpen = landmarks[12].y < landmarks[10].y;
+                            const isRingOpen = landmarks[16].y < landmarks[14].y;
+                            const isPinkyOpen = landmarks[20].y < landmarks[18].y;
+                            
+                            if (isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen) {
+                                if (!isCountingDown) {
+                                    startCountdown();
+                                }
+                            }
+                            drawHandPoints(landmarks);
+                        }
+                    }
+                } catch (err) {
+                    console.error("預測執行期錯誤:", err);
+                }
             }
             requestAnimationFrame(predictWebcam);
         }
@@ -221,7 +224,7 @@
                 const x = point.x * canvasElement.width;
                 const y = point.y * canvasElement.height;
                 canvasCtx.beginPath();
-                canvasCtx.arc(x, y, 5, 0, 2 * Math.PI); // 稍微放大綠點直徑至 5
+                canvasCtx.arc(x, y, 5, 0, 2 * Math.PI);
                 canvasCtx.fill();
             }
         }
