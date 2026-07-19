@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI 手勢倒數自拍相機</title>
-    <!-- 引入前端元件庫 CSS -->
     <link href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css" rel="stylesheet">
     <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
     
@@ -29,20 +28,25 @@
         }
         #webcam {
             position: absolute;
+            top: 0;
+            left: 0;
             width: 640px;
             height: 480px;
-            transform: rotateY(180deg); /* 鏡像畫面 */
+            transform: rotateY(180deg);
             object-fit: cover;
+            z-index: 1; /* 確保影片在最底層 */
         }
         #canvas-output {
             position: absolute;
+            top: 0;
+            left: 0;
             width: 640px;
             height: 480px;
             transform: rotateY(180deg);
             pointer-events: none;
-            z-index: 5;
+            z-index: 10; /* 強制將繪圖層提到影片上方，防範綠點被遮擋 */
+            background: transparent; /* 確保畫布完全透明 */
         }
-        /* 倒數計時大字樣 */
         #countdown {
             position: absolute;
             top: 50%;
@@ -53,9 +57,8 @@
             font-weight: bold;
             text-shadow: 0 4px 12px rgba(0,0,0,0.5);
             display: none;
-            z-index: 10;
+            z-index: 20;
         }
-        /* 狀態提示欄 */
         #status {
             margin-top: 15px;
             font-size: 18px;
@@ -64,7 +67,6 @@
             text-align: center;
             max-width: 600px;
         }
-        /* 照片預覽與下載區 */
         #photo-gallery {
             margin-top: 20px;
             display: flex;
@@ -113,7 +115,6 @@
         <a id="download-link" class="btn-download" href="#" download="ai-selfie.png">💾 下載照片</a>
     </div>
 
-    <!-- 載入 MediaPipe Vision 任務庫 -->
     <script type="module">
         import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8";
 
@@ -130,32 +131,23 @@
         let isCountingDown = false;
         let countdownTimer = null;
 
-        // 1. 先開啟鏡頭畫面
         async function initializeModel() {
             statusEl.innerText = "正在開啟鏡頭...";
             startCamera();
         }
 
-        // 2. 啟動 Webcam
         function startCamera() {
-            const constraints = { 
-                video: { 
-                    width: { ideal: 640 }, 
-                    height: { ideal: 480 } 
-                } 
-            };
+            const constraints = { video: { width: { ideal: 640 }, height: { ideal: 480 } } };
             navigator.mediaDevices.getUserMedia(constraints)
                 .then(async (stream) => {
                     video.srcObject = stream;
                     statusEl.innerText = "相機已開啟，正在載入 AI 辨識系統...";
                     
                     try {
-                        // 使用穩定的公共節點下載 WASM 核心
                         const vision = await FilesetResolver.forVisionTasks(
                             "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm"
                         );
                         
-                        // 替換為官方正式開放跨域授權（CORS）的標準模型路徑，並使用 CPU 運算避開 GPU 黑名單阻擋
                         handLandmarker = await HandLandmarker.createFromOptions(vision, {
                             baseOptions: {
                                 modelAssetPath: "https://storage.googleapis.com/mediapipe-tasks/hand_landmarker/hand_landmarker.task",
@@ -165,11 +157,13 @@
                             numHands: 1
                         });
                         
-                        video.addEventListener("loadeddata", predictWebcam);
-                        statusEl.innerText = "系統就緒：請在鏡頭前張開五指試試！";
+                        video.addEventListener("loadeddata", () => {
+                            statusEl.innerText = "系統就緒：請在鏡頭前張開五指試試！";
+                            predictWebcam();
+                        });
                     } catch (modelError) {
                         console.error("AI 模型載入失敗原因:", modelError);
-                        statusEl.innerText = "AI 模組載入失敗，請按 F12 檢查 Console 錯誤訊息。";
+                        statusEl.innerText = "AI 模組載入失敗，請檢查網路連線。";
                     }
                 })
                 .catch((err) => {
@@ -178,62 +172,60 @@
                 });
         }
 
-        // 3. 實時手勢辨識核心
         let lastVideoTime = -1;
         async function predictWebcam() {
-            if (!handLandmarker) {
+            // 如果手掌辨識庫尚未準備好，或影片還沒真正播放，直接等待下一幀
+            if (!handLandmarker || video.readyState < 2) {
                 requestAnimationFrame(predictWebcam);
                 return;
             }
 
-            // 設定畫布大小與影片同步
             if (canvasElement.width !== video.videoWidth) {
                 canvasElement.width = video.videoWidth;
                 canvasElement.height = video.videoHeight;
             }
 
-            let startTimeMs = performance.now();
-            if (lastVideoTime !== video.currentTime && video.currentTime > 0) {
-                lastVideoTime = video.currentTime;
-                const results = handLandmarker.detectForVideo(video, startTimeMs);
+            try {
+                let startTimeMs = performance.now();
+                if (lastVideoTime !== video.currentTime && video.currentTime > 0) {
+                    lastVideoTime = video.currentTime;
+                    const results = handLandmarker.detectForVideo(video, startTimeMs);
 
-                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-                
-                if (results.landmarks && results.landmarks.length > 0) {
-                    const landmarks = results.landmarks[0]; // 取得手部特徵點
+                    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
                     
-                    // 偵測食指、中指、無名指、小指尖端是否都高於其下方的第二關節（代表張開）
-                    const isIndexOpen = landmarks[8].y < landmarks[6].y;
-                    const isMiddleOpen = landmarks[12].y < landmarks[10].y;
-                    const isRingOpen = landmarks[16].y < landmarks[14].y;
-                    const isPinkyOpen = landmarks[20].y < landmarks[18].y;
-                    
-                    // 若判定為手掌張開，且未在倒數，則觸發倒數
-                    if (isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen) {
-                        if (!isCountingDown) {
-                            startCountdown();
+                    if (results.landmarks && results.landmarks.length > 0) {
+                        const landmarks = results.landmarks[0];
+                        
+                        const isIndexOpen = landmarks[8].y < landmarks[6].y;
+                        const isMiddleOpen = landmarks[12].y < landmarks[10].y;
+                        const isRingOpen = landmarks[16].y < landmarks[14].y;
+                        const isPinkyOpen = landmarks[20].y < landmarks[18].y;
+                        
+                        if (isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen) {
+                            if (!isCountingDown) {
+                                startCountdown();
+                            }
                         }
+                        drawHandPoints(landmarks);
                     }
-                    // 在視覺上渲染手部綠色特徵點
-                    drawHandPoints(landmarks);
                 }
+            } catch (err) {
+                console.error("預測執行期錯誤:", err);
             }
             requestAnimationFrame(predictWebcam);
         }
 
-        // 畫出手指關節
         function drawHandPoints(landmarks) {
             canvasCtx.fillStyle = "#00FF00";
             for (const point of landmarks) {
                 const x = point.x * canvasElement.width;
                 const y = point.y * canvasElement.height;
                 canvasCtx.beginPath();
-                canvasCtx.arc(x, y, 4, 0, 2 * Math.PI);
+                canvasCtx.arc(x, y, 5, 0, 2 * Math.PI); // 稍微放大綠點直徑至 5
                 canvasCtx.fill();
             }
         }
 
-        // 4. 倒數計時控制
         function startCountdown() {
             isCountingDown = true;
             let count = 5;
@@ -248,19 +240,17 @@
                 } else {
                     clearInterval(countdownTimer);
                     countdownEl.style.display = "none";
-                    takeSnapshot(); // 觸發截圖拍照
+                    takeSnapshot();
                 }
             }, 1000);
         }
 
-        // 5. 截圖、生成照片與下載綁定
         function takeSnapshot() {
             const snapCanvas = document.createElement("canvas");
             snapCanvas.width = video.videoWidth;
             snapCanvas.height = video.videoHeight;
             const snapCtx = snapCanvas.getContext("2d");
 
-            // 為了讓拍出來的照片方向與使用者鏡像畫面一致，進行水平翻轉
             snapCtx.translate(snapCanvas.width, 0);
             snapCtx.scale(-1, 1);
             snapCtx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
@@ -274,7 +264,6 @@
 
             statusEl.innerText = "拍照完成！照片已生成，可點擊下載。";
             
-            // 3秒後恢復就緒狀態，允許下一次手勢拍照
             setTimeout(() => {
                 isCountingDown = false;
                 statusEl.innerText = "系統就緒：請在鏡頭前張開五指試試！";
